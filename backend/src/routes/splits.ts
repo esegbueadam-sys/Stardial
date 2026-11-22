@@ -416,7 +416,7 @@ splitsRouter.get(
   )
 );
 
-splitsRouter.post("/:projectId/deposit", idempotencyMiddleware, async (req, res, next) => {
+splitsRouter.post("/:projectId/deposit", idempotencyMiddleware(), async (req, res, next) => {
   try {
     const requestId = res.locals.requestId;
 

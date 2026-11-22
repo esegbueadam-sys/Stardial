@@ -1,6 +1,17 @@
-# Idempotent Split Creation Retries
+# Idempotent Mutation Retries
 
-Guide for API consumers safely retrying `POST /splits` requests.
+Guide for API consumers safely retrying write requests.
+
+## Coverage
+
+The `Idempotency-Key` contract applies to **every state-changing endpoint**
+(`POST`, `PUT`, `PATCH`, `DELETE`). The guard runs once, before the routers, so
+routes added later are protected without extra wiring. Read-only `GET` requests
+are never intercepted.
+
+The header remains opt-in: a request without an `Idempotency-Key` behaves
+exactly as before. `POST /splits` is the most important caller, so the examples
+below use it.
 
 ## Idempotency-Key
 

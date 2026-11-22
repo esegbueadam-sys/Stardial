@@ -8,6 +8,19 @@ const IDEMPOTENCY_HEADER = "idempotency-key";
 const MAX_KEY_LENGTH = 255;
 const KEY_PATTERN = /^[A-Za-z0-9_.:-]+$/;
 
+/** Methods that can change server state and therefore need retry protection. */
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Marks a request that has already passed through the middleware.
+ *
+ * The guard is mounted both app-wide (see `idempotentMutations`) and on
+ * individual routes (create split, deposit). Without this marker the second,
+ * inner pass would see its own in-flight entry and answer its sibling with a
+ * spurious `IDEMPOTENCY_KEY_IN_PROGRESS` 409.
+ */
+const IDEMPOTENCY_HANDLED = "__stardialIdempotencyHandled";
+
 /**
  * Machine-readable outcome of an idempotent request (Issue #1248).
  *
@@ -72,6 +85,13 @@ function conflictError(code: ErrorCode, message: string): AppError {
  */
 export function idempotencyMiddleware(store: IdempotencyStore = defaultStore): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
+    const marked = req as Request & { [IDEMPOTENCY_HANDLED]?: boolean };
+    if (marked[IDEMPOTENCY_HANDLED]) {
+      next();
+      return;
+    }
+    marked[IDEMPOTENCY_HANDLED] = true;
+
     const rawKey = req.header(IDEMPOTENCY_HEADER);
     if (!rawKey) {
       next();
@@ -148,5 +168,24 @@ export function idempotencyMiddleware(store: IdempotencyStore = defaultStore): R
     });
 
     next();
+  };
+}
+
+/**
+ * Applies the idempotency contract to every state-changing request.
+ *
+ * Mounted once, before the routers, so a new mutation endpoint is protected by
+ * default instead of relying on the author remembering to add
+ * `idempotencyMiddleware()`. Read-only methods are left untouched. The header
+ * stays opt-in: requests without an `Idempotency-Key` pass straight through.
+ */
+export function idempotentMutations(store: IdempotencyStore = defaultStore): RequestHandler {
+  const handler = idempotencyMiddleware(store);
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!MUTATION_METHODS.has(req.method)) {
+      next();
+      return;
+    }
+    handler(req, res, next);
   };
 }
